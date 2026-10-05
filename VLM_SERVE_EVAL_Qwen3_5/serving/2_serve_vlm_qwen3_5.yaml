@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vlm-qwen3-5-serve
+  namespace: gpu-workspace
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vlm-qwen3-5-serve
+  template:
+    metadata:
+      labels:
+        app: vlm-qwen3-5-serve
+    spec:
+      nodeSelector:
+        example.com/gpu-pool: YOUR_GPU_NODE_POOL
+      imagePullSecrets:
+        - name: registry-credentials
+      containers:
+        - name: api
+          image: registry.example.com/vlm-qwen3_5-serve:latest
+          imagePullPolicy: Always
+          command: ["python", "/app/1_openai_compatible_api.py"]
+          args:
+            - --model-path
+            - /data/checkpoints/qwen3_5_9b_multimodal_sft
+            - --base-model-name
+            - Qwen/Qwen3.5-9B
+            - --model-id
+            - qwen3_5_9b_multimodal_sft
+            - --checkpoints-root
+            - /data/checkpoints
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+            - --torch-dtype
+            - bfloat16
+          env:
+            - name: HF_HOME
+              value: /data/huggingface_cache
+            - name: HF_TOKEN
+              value: ""
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            requests:
+              cpu: "16"
+              memory: "160Gi"
+              nvidia.com/gpu: 1
+            limits:
+              cpu: "16"
+              memory: "160Gi"
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - mountPath: /data
+              name: storage-volume
+            - mountPath: /dev/shm
+              name: dshm
+      volumes:
+        - name: storage-volume
+          persistentVolumeClaim:
+            claimName: training-pvc
+        - name: dshm
+          emptyDir:
+            medium: Memory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vlm-qwen3-5-serve
+  namespace: gpu-workspace
+spec:
+  selector:
+    app: vlm-qwen3-5-serve
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000

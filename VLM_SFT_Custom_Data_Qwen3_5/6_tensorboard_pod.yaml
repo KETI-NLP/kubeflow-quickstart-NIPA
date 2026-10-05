@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: vlm-sft-tensorboard
+  namespace: gpu-workspace
+  labels:
+    app: vlm-sft-tensorboard
+spec:
+  restartPolicy: Always
+  nodeSelector:
+    example.com/gpu-pool: YOUR_GPU_NODE_POOL
+  imagePullSecrets:
+    - name: registry-credentials
+  containers:
+    - name: tensorboard
+      image: registry.example.com/vlm-sft-qwen3_5:ib
+      imagePullPolicy: Always
+      command: ["tensorboard"]
+      args:
+        - "--logdir=/data/log/vlm-sft"
+        - "--bind_all"
+        - "--port=6006"
+      ports:
+        - containerPort: 6006
+          name: http
+      resources:
+        requests:
+          cpu: "2"
+          memory: "4Gi"
+        limits:
+          cpu: "4"
+          memory: "8Gi"
+      volumeMounts:
+        - mountPath: /data
+          name: storage-volume
+  volumes:
+    - name: storage-volume
+      persistentVolumeClaim:
+        claimName: training-pvc

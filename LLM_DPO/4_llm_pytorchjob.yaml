@@ -1,0 +1,70 @@
+apiVersion: "kubeflow.org/v1"
+kind: PyTorchJob
+metadata:
+  name: llm-dpo-dist
+  namespace: gpu-workspace
+spec:
+  elasticPolicy:
+    rdzvId: llm-dpo
+    rdzvBackend: c10d
+    minReplicas: 4
+    maxReplicas: 4
+    nProcPerNode: 8
+  pytorchReplicaSpecs:
+    Worker:
+      replicas: 4
+      restartPolicy: Never
+      template:
+        spec:
+          nodeSelector:
+            example.com/gpu-pool: YOUR_GPU_NODE_POOL
+          imagePullSecrets:
+            - name: registry-credentials
+          containers:
+            - name: pytorch
+              # 커스텀으로 빌드한 linux/amd64 x86_64 기반 이미지 적용 (본인의 레지스트리 경로에 맞춰 변경 필요)
+              image: registry.example.com/custom-llm-dpo:latest 
+              imagePullPolicy: Always
+              command: ["bash", "-c"]
+              args:
+                - >
+                  torchrun --nnodes ${PET_NNODES}
+                  --nproc_per_node ${PET_NPROC_PER_NODE}
+                  --rdzv_id ${PET_RDZV_ID}
+                  --rdzv_backend ${PET_RDZV_BACKEND}
+                  --rdzv_endpoint ${PET_RDZV_ENDPOINT}
+                  /app/3_llm_dpo_distributed.py
+                  --model_name Qwen/Qwen3-VL-8B-Instruct
+                  --data_path /data/dpo_dataset
+              env:
+                - name: HF_HOME
+                  value: /data/huggingface_cache
+                - name: NCCL_DEBUG
+                  value: INFO
+              resources:
+                limits:
+                  cpu: "16"
+                  memory: "128Gi"
+                  nvidia.com/gpu: 8
+                requests:
+                  cpu: "16"
+                  memory: "128Gi"
+                  nvidia.com/gpu: 8
+              volumeMounts:
+                - mountPath: /dev/shm
+                  name: dshm
+                - mountPath: "/data"
+                  name: storage-volume
+                - mountPath: "/app/3_llm_dpo_distributed.py"
+                  name: script-volume
+                  subPath: 3_llm_dpo_distributed.py
+          volumes:
+            - name: dshm
+              emptyDir:
+                medium: Memory
+            - name: storage-volume
+              persistentVolumeClaim:
+                claimName: training-pvc
+            - name: script-volume
+              configMap:
+                name: llm-dpo-script

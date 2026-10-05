@@ -1,0 +1,113 @@
+apiVersion: "kubeflow.org/v1"
+kind: PyTorchJob
+metadata:
+  name: vlm-sft-qwen3-5-9b-multi-attr
+  namespace: gpu-workspace
+spec:
+  elasticPolicy:
+    rdzvId: vlm-sft-qwen3-5-9b-multi-attr
+    rdzvBackend: c10d
+    minReplicas: 4
+    maxReplicas: 4
+    nProcPerNode: 8
+  pytorchReplicaSpecs:
+    Worker:
+      replicas: 4
+      restartPolicy: Never
+      template:
+        spec:
+          nodeSelector:
+            example.com/gpu-pool: YOUR_GPU_NODE_POOL
+          imagePullSecrets:
+            - name: registry-credentials
+          containers:
+            - name: pytorch
+              image: registry.example.com/vlm-sft-qwen3_5:ib
+              imagePullPolicy: Always
+              securityContext:
+                capabilities:
+                  add:
+                    - IPC_LOCK
+              command: ["bash", "-c"]
+              args:
+                - >
+                  ulimit -l unlimited &&
+                  torchrun --nnodes ${PET_NNODES}
+                  --nproc_per_node ${PET_NPROC_PER_NODE}
+                  --rdzv_id ${PET_RDZV_ID}
+                  --rdzv_backend ${PET_RDZV_BACKEND}
+                  --rdzv_endpoint ${PET_RDZV_ENDPOINT}
+                  /app/3_vlm_sft_distributed.py
+                  --model_name /data/checkpoints/qwen3_5_vl_dpo
+                  --processor_name Qwen/Qwen3.5-9B
+                  --data_path YOUR_WORKSPACE/data_kr_heri_multi_attr_sft_hf
+                  --output_path /data/checkpoints/qwen3_5_9b_multi_attr_sft
+                  --logging_dir /data/log/vlm-sft-qwen3-5-9b-multi-attr
+                  --skip_dataset_validation
+                  --per_device_train_batch_size 8
+                  --gradient_accumulation_steps 1
+                  --learning_rate 5e-5
+                  --save_steps 500
+              env:
+                # ---- 메모리 누수 완화 (glibc/Python malloc OS 반납 강제) ----
+                - name: MALLOC_TRIM_THRESHOLD_
+                  value: "0"
+                - name: MALLOC_ARENA_MAX
+                  value: "2"
+                - name: PYTHONMALLOC
+                  value: malloc
+                # ---- 이하 기존 ----
+                - name: HF_HOME
+                  value: /data/huggingface_cache
+                - name: NCCL_DEBUG
+                  value: INFO
+                - name: NCCL_IB_DISABLE
+                  value: "0"
+                - name: NCCL_SOCKET_IFNAME
+                  value: "^lo,docker0"
+                - name: NCCL_NET_GDR_LEVEL
+                  value: "2"
+                - name: NCCL_ASYNC_ERROR_HANDLING
+                  value: "1"
+                - name: TORCH_NCCL_ASYNC_ERROR_HANDLING
+                  value: "1"
+                - name: MLXP_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: mlxp-credentials
+                      key: api-key
+                - name: MLXP_ENDPOINT_URL
+                  value: https://kpb4r.mlxp.ncloud.com/
+                - name: MLX_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: mlxp-credentials
+                      key: api-key
+                - name: MLX_ENDPOINT_URL
+                  value: https://kpb4r.mlxp.ncloud.com/
+                - name: HF_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: mlxp-credentials
+                      key: api-key
+              resources:
+                limits:
+                  cpu: "64"
+                  memory: "1024Gi"
+                  nvidia.com/gpu: 8
+                requests:
+                  cpu: "64"
+                  memory: "1024Gi"
+                  nvidia.com/gpu: 8
+              volumeMounts:
+                - mountPath: /dev/shm
+                  name: dshm
+                - mountPath: "/data"
+                  name: storage-volume
+          volumes:
+            - name: dshm
+              emptyDir:
+                medium: Memory
+            - name: storage-volume
+              persistentVolumeClaim:
+                claimName: training-pvc

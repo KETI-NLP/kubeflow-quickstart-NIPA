@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: debug-qwen-processor
+  namespace: gpu-workspace
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    example.com/gpu-pool: YOUR_GPU_NODE_POOL
+  imagePullSecrets:
+    - name: registry-credentials
+  containers:
+    - name: debug
+      image: registry.example.com/vlm-dpo-qwen3_5:ib
+      imagePullPolicy: Always
+      resources:
+        requests:
+          cpu: "32"
+          memory: "768Gi"
+        limits:
+          cpu: "32"
+          memory: "768Gi"
+      command: ["sleep", "infinity"]
+      env:
+        - name: MLXP_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mlxp-credentials
+              key: api-key
+        - name: MLXP_ENDPOINT_URL
+          value: https://kpb4r.mlxp.ncloud.com/
+        - name: MLX_APIKEY
+          valueFrom:
+            secretKeyRef:
+              name: mlxp-credentials
+              key: api-key
+        - name: MLX_ENDPOINT_URL
+          value: https://kpb4r.mlxp.ncloud.com/
+      volumeMounts:
+        - name: storage-volume
+          mountPath: /data
+  volumes:
+    - name: storage-volume
+      persistentVolumeClaim:
+        claimName: training-pvc

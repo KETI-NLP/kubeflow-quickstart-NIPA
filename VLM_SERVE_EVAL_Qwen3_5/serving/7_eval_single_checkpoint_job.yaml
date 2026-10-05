@@ -1,0 +1,76 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: qwen3-5-checkpoint-eval-__CHECKPOINT_NAME__
+  namespace: gpu-workspace
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: qwen3-5-checkpoint-eval
+        checkpoint-name: __CHECKPOINT_NAME__
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        example.com/gpu-pool: YOUR_GPU_NODE_POOL
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - qwen3-5-checkpoint-eval
+                topologyKey: kubernetes.io/hostname
+      imagePullSecrets:
+        - name: registry-credentials
+      containers:
+        - name: eval
+          image: registry.example.com/vlm-qwen3_5-serve:latest
+          imagePullPolicy: Always
+          command: ["python", "/app/5_eval_checkpoints.py"]
+          args:
+            - --checkpoints-dir
+            - /data/checkpoints/qwen3_5_9b_multimodal_sft_lr_1e-5
+            - --checkpoint-glob
+            - __CHECKPOINT_NAME__
+            - --processor-path
+            - /data/checkpoints/qwen3_5_9b_multimodal_sft_lr_1e-5
+            - --output-dir
+            - /data/eval_results/qwen3_5_9b_multimodal_sft_lr_1e-5_math_eval_parallel
+            - --torch-dtype
+            - bfloat16
+            - --max-new-tokens
+            - "128"
+            - --temperature
+            - "0.0"
+          env:
+            - name: HF_HOME
+              value: /data/huggingface_cache
+            - name: HF_TOKEN
+              value: ""
+          resources:
+            requests:
+              cpu: "16"
+              memory: "160Gi"
+              nvidia.com/gpu: 1
+            limits:
+              cpu: "16"
+              memory: "160Gi"
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - mountPath: /data
+              name: storage-volume
+            - mountPath: /dev/shm
+              name: dshm
+      volumes:
+        - name: storage-volume
+          persistentVolumeClaim:
+            claimName: training-pvc
+        - name: dshm
+          emptyDir:
+            medium: Memory

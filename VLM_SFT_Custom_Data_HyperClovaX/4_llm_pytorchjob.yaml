@@ -1,0 +1,65 @@
+apiVersion: "kubeflow.org/v1"
+kind: PyTorchJob
+metadata:
+  name: vlm-sft-hcx-seed-omni-8b-test
+  namespace: gpu-workspace
+spec:
+  elasticPolicy:
+    rdzvId: vlm-sft
+    rdzvBackend: c10d
+    minReplicas: 8
+    maxReplicas: 8
+    nProcPerNode: 8
+  pytorchReplicaSpecs:
+    Worker:
+      replicas: 8
+      restartPolicy: Never
+      template:
+        spec:
+          nodeSelector:
+            example.com/gpu-pool: YOUR_GPU_NODE_POOL
+          imagePullSecrets:
+            - name: registry-credentials
+          containers:
+            - name: pytorch
+              # 커스텀으로 빌드한 linux/amd64 x86_64 기반 이미지 적용 (본인의 레지스트리 경로에 맞춰 변경 필요)
+              image: registry.example.com/custom-vlm-sft-hcx-seed-omni-8b-test:latest
+              imagePullPolicy: Always
+              command: ["bash", "-c"]
+              args:
+                - >
+                  torchrun --nnodes ${PET_NNODES}
+                  --nproc_per_node ${PET_NPROC_PER_NODE}
+                  --rdzv_id ${PET_RDZV_ID}
+                  --rdzv_backend ${PET_RDZV_BACKEND}
+                  --rdzv_endpoint ${PET_RDZV_ENDPOINT}
+                  /app/3_vlm_sft_distributed.py
+                  --model_name naver-hyperclovax/HyperCLOVAX-SEED-Omni-8B
+                  --data_path /data/convert_to_llm_training_ready/data_korean_object_image_3_generation_hf,/data/convert_to_llm_training_ready/data_13_korean_character_hf,/data/convert_to_llm_training_ready/data_030_korean_character_outside_hf,/data/convert_to_llm_training_ready/data_public_executive_ocr_hf,/data/convert_to_llm_training_ready/data_korean_object_image_4_hallucination_text_only_generation_hf,/data/convert_to_llm_training_ready/data_korean_object_image_5_hallucination_normal_image_wrong_text_generation_hf,/data/convert_to_llm_training_ready/data_030_korean_character_outside_hf,/data/convert_to_llm_training_ready/data_public_executive_ocr_hf,/data/convert_to_llm_training_ready/data_korean_object_image_4_hallucination_text_only_generation_hf,/data/convert_to_llm_training_ready/data_korean_object_image_5_hallucination_normal_image_wrong_text_generation_hf,/data/convert_to_llm_training_ready/dpo_dataset_generated_all_hf
+                  --use_test_dataset
+              env:
+                - name: HF_HOME
+                  value: /data/huggingface_cache
+                - name: NCCL_DEBUG
+                  value: INFO
+              resources:
+                limits:
+                  cpu: "32"
+                  memory: "512Gi"
+                  nvidia.com/gpu: 8
+                requests:
+                  cpu: "32"
+                  memory: "256Gi"
+                  nvidia.com/gpu: 8
+              volumeMounts:
+                - mountPath: /dev/shm
+                  name: dshm
+                - mountPath: "/data"
+                  name: storage-volume
+          volumes:
+            - name: dshm
+              emptyDir:
+                medium: Memory
+            - name: storage-volume
+              persistentVolumeClaim:
+                claimName: training-pvc

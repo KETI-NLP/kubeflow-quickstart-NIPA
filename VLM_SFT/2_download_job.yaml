@@ -1,0 +1,37 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: llm-dataset-download-job
+  namespace: gpu-workspace
+  annotations:
+    sidecar.istio.io/inject: "false"
+spec:
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        example.com/gpu-pool: YOUR_GPU_NODE_POOL
+      containers:
+        - name: storage-initializer
+          image: mlx-public.kr.ncr.ntruss.com/mlx/mdm-storage-initializer:0.0.5
+          env:
+          - name: MLX_APIKEY
+            valueFrom:
+              secretKeyRef:
+                name: mlxp-credentials
+                key: api-key
+          args:
+          # 유저가 로컬 데이터를 MLXP DataManager로 업로드한 경로 (예시 경로)
+          - "mlx+data-manager://kpb4r.mlxp.ncloud.com/YOUR_WORKSPACE/alpaca_dataset"
+          # 저장할 PVC 내 경로
+          - "/data/alpaca_dataset"
+          volumeMounts:
+            - mountPath: "/data"
+              name: storage-volume
+      volumes:
+        - name: storage-volume
+          persistentVolumeClaim:
+            claimName: training-pvc

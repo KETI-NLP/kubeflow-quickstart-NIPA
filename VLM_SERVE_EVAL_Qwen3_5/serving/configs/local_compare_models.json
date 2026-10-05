@@ -1,0 +1,12 @@
+{
+  "models": [
+    {
+      "id": "lr_1e-5_checkpoint_300",
+      "path": "/workspace/local_models/qwen3_5_9b_multimodal_sft_lr_1e-5/checkpoint-300"
+    },
+    {
+      "id": "dpo_normalized_checkpoint_1253",
+      "path": "/workspace/local_models/qwen3_5_9b_multimodal_sft_dpo_normalized/checkpoint-1253"
+    }
+  ]
+}

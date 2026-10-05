@@ -1,0 +1,113 @@
+# vLLM-based serving — runs ALONGSIDE the transformers server (2_serve_vlm_qwen3_5.yaml).
+# Separate Deployment/Service names, so the original server stays as a fallback.
+#
+#   kubectl apply -f 2b_serve_vllm.yaml
+#   kubectl -n gpu-workspace rollout status deploy/vlm-qwen3-5-serve-vllm
+#   kubectl -n gpu-workspace port-forward svc/vlm-qwen3-5-serve-vllm 8000:8000
+#
+# vLLM serves exactly ONE model per process (no lazy multi-checkpoint switching).
+# To serve a different checkpoint, change the model path + --served-model-name below.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vlm-qwen3-5-serve-vllm
+  namespace: gpu-workspace
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vlm-qwen3-5-serve-vllm
+  template:
+    metadata:
+      labels:
+        app: vlm-qwen3-5-serve-vllm
+    spec:
+      nodeSelector:
+        example.com/gpu-pool: YOUR_GPU_NODE_POOL
+      imagePullSecrets:
+        - name: registry-credentials
+      containers:
+        - name: vllm
+          image: registry.example.com/vlm-qwen3_5-serve-vllm:latest
+          imagePullPolicy: Always
+          command: ["vllm", "serve"]
+          args:
+            - Qwen/Qwen3.5-9B
+            - --served-model-name
+            - Qwen/Qwen3.5-9B
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+            - --dtype
+            - bfloat16
+            - --tensor-parallel-size
+            - "1"
+            - --data-parallel-size
+            - "8"
+            - --gpu-memory-utilization
+            - "0.90"
+            # --chat-template omitted: vLLM auto-loads from tokenizer config for HF models.
+            # --max-model-len omitted: vLLM infers from config.json.
+            #   Set explicitly (e.g. --max-model-len 32768) if KV cache OOMs.
+          env:
+            - name: HF_HOME
+              value: /data/huggingface_cache
+            - name: HF_TOKEN
+              value: ""
+          ports:
+            - containerPort: 8000
+              name: http
+          # Model load takes several minutes — startupProbe gives it up to 15 min
+          # before liveness/readiness kick in.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 10
+            failureThreshold: 90
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "16"
+              memory: "160Gi"
+              nvidia.com/gpu: 8
+            limits:
+              cpu: "16"
+              memory: "160Gi"
+              nvidia.com/gpu: 8
+          volumeMounts:
+            - mountPath: /data
+              name: storage-volume
+            - mountPath: /dev/shm
+              name: dshm
+      volumes:
+        - name: storage-volume
+          persistentVolumeClaim:
+            claimName: training-pvc
+        - name: dshm
+          emptyDir:
+            medium: Memory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vlm-qwen3-5-serve-vllm
+  namespace: gpu-workspace
+spec:
+  selector:
+    app: vlm-qwen3-5-serve-vllm
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000

@@ -1,0 +1,28 @@
+# Python virtualenv (large — never commit)
+.venv/
+
+# Caches
+.litellm_cache/
+**/__pycache__/
+tmp_eval_datasets/
+
+# Run artifacts / logs
+*.log
+*.log.*
+logs/
+parallel_logs/
+final_11_tasks_run/
+reports/
+smi_output.txt
+
+# Eval scratch dirs
+test_*/
+*_ocr_task_report.md
+ocr_model_comparison_report.md
+
+# LLM-judge caches (regenerated on demand)
+*_llm_judge_cache.json
+
+# Per-machine environment config (copy from scripts/env.example.sh)
+scripts/env.local.sh
+serving/configs/local.env

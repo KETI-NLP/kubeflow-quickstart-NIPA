@@ -1,0 +1,209 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: inspect-packed-image-token-alignment
+  namespace: gpu-workspace
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    example.com/gpu-pool: YOUR_GPU_NODE_POOL
+  imagePullSecrets:
+    - name: registry-credentials
+  containers:
+    - name: inspector
+      image: registry.example.com/vlm-sft-qwen3_5-packed:ib
+      imagePullPolicy: Always
+      command: ["bash", "-c"]
+      args:
+        - |
+          python3 - <<'PY'
+          import io
+          import os
+          from typing import Any
+          from datasets import load_dataset, load_from_disk
+          from transformers import AutoProcessor
+          from PIL import Image
+
+          DATA_PATHS = [
+              "YOUR_WORKSPACE/data_030_kr_char_out_qwen3_5_sft_hf",
+              "YOUR_WORKSPACE/data_kr_obj_img_3_gen_qwen3_5_sft_hf",
+              "YOUR_WORKSPACE/data_kr_obj_img_5_hallu_wr_txt_qwen3_5_sft_hf",
+              "YOUR_WORKSPACE/finevision_qwen3_5_sft_hf",
+              "YOUR_WORKSPACE/data_13_kr_char_qwen3_5_sft_hf",
+              "YOUR_WORKSPACE/data_pub_exec_ocr_qwen3_5_sft_hf",
+          ]
+          PROCESSOR_NAME = "Qwen/Qwen3.5-27B"
+          LIMIT = 30
+
+          def load_any_dataset(path: str, split: str = "train"):
+              if os.path.exists(path):
+                  ds = load_from_disk(path)
+                  if hasattr(ds, "keys"):
+                      if split in ds:
+                          return ds[split]
+                      if "train" in ds:
+                          return ds["train"]
+                  return ds
+              try:
+                  from mlx.sdk.data import load_dataset as mlxp_load_dataset
+                  ds = mlxp_load_dataset(path)
+                  if hasattr(ds, "keys"):
+                      if split in ds:
+                          return ds[split]
+                      if "train" in ds:
+                          return ds["train"]
+                  return ds
+              except Exception:
+                  return load_dataset(path, split=split)
+
+          def prepare_image_for_processor(img: Any):
+              if not isinstance(img, Image.Image):
+                  return img
+              if img.mode != "RGB":
+                  img = img.convert("RGB")
+              width, height = img.size
+              if max(width, height) > 512:
+                  scale = 512.0 / max(width, height)
+                  new_width = max(1, int(width * scale))
+                  new_height = max(1, int(height * scale))
+                  img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+              return img
+
+          def decode_images(images_value):
+              if images_value is None:
+                  return []
+              if not isinstance(images_value, list):
+                  images_value = [images_value]
+              decoded = []
+              for img in images_value:
+                  if isinstance(img, dict) and img.get("bytes") is not None:
+                      decoded.append(prepare_image_for_processor(Image.open(io.BytesIO(img["bytes"]))))
+                  elif isinstance(img, Image.Image):
+                      decoded.append(prepare_image_for_processor(img))
+                  else:
+                      decoded.append(img)
+              return decoded
+
+          processor = AutoProcessor.from_pretrained(PROCESSOR_NAME, trust_remote_code=True)
+          image_token_id = getattr(processor, "image_token_id", None)
+          if image_token_id is None:
+              image_token_id = getattr(getattr(processor, "tokenizer", None), "image_token_id", None)
+          if image_token_id is None:
+              image_token_id = 248056
+          image_processor = getattr(processor, "image_processor", None)
+          spatial_merge_size = getattr(image_processor, "merge_size", None)
+          if spatial_merge_size is None:
+              spatial_merge_size = getattr(image_processor, "spatial_merge_size", None)
+          if spatial_merge_size is None:
+              spatial_merge_size = 2
+
+          print(f"processor={PROCESSOR_NAME}")
+          print(f"image_token_id={image_token_id}")
+          print(f"spatial_merge_size={spatial_merge_size}")
+          print(f"dataset_count={len(DATA_PATHS)}")
+
+          for DATA_PATH in DATA_PATHS:
+              ds = load_any_dataset(DATA_PATH, "train")
+              total = min(len(ds), LIMIT)
+              mismatches_nested = 0
+              mismatches_flat = 0
+
+              print("")
+              print(f"dataset={DATA_PATH}")
+              print(f"samples_to_check={total}")
+
+              for idx in range(total):
+                  ex = ds[idx]
+                  packed_input_ids = ex.get("input_ids", [])
+                  packed_image_tokens = sum(1 for tok in packed_input_ids if tok == image_token_id)
+                  decoded_images = decode_images(ex.get("images"))
+
+                  if decoded_images:
+                      nested_batch = processor(
+                          text=[""],
+                          images=[decoded_images],
+                          padding=False,
+                          return_tensors="pt",
+                      )
+                      nested_grid = nested_batch.get("image_grid_thw")
+                      nested_grid_rows = nested_grid.tolist() if nested_grid is not None else None
+                      if nested_grid is not None:
+                          processor_feature_tokens_nested = sum(
+                              int((t * h * w) // (spatial_merge_size ** 2))
+                              for t, h, w in nested_grid_rows
+                          )
+                      else:
+                          processor_feature_tokens_nested = 0
+
+                      flat_batch = processor(
+                          text=[""],
+                          images=decoded_images,
+                          padding=False,
+                          return_tensors="pt",
+                      )
+                      flat_grid = flat_batch.get("image_grid_thw")
+                      flat_grid_rows = flat_grid.tolist() if flat_grid is not None else None
+                      if flat_grid is not None:
+                          processor_feature_tokens_flat = sum(
+                              int((t * h * w) // (spatial_merge_size ** 2))
+                              for t, h, w in flat_grid_rows
+                          )
+                      else:
+                          processor_feature_tokens_flat = 0
+                  else:
+                      processor_feature_tokens_nested = 0
+                      processor_feature_tokens_flat = 0
+                      nested_grid_rows = None
+                      flat_grid_rows = None
+
+                  ok_nested = packed_image_tokens == processor_feature_tokens_nested
+                  ok_flat = packed_image_tokens == processor_feature_tokens_flat
+                  if not ok_nested:
+                      mismatches_nested += 1
+                  if not ok_flat:
+                      mismatches_flat += 1
+
+                  print(
+                      f"idx={idx} num_images={len(decoded_images)} "
+                      f"packed_image_tokens={packed_image_tokens} "
+                      f"nested_feature_tokens={processor_feature_tokens_nested} ok_nested={ok_nested} "
+                      f"flat_feature_tokens={processor_feature_tokens_flat} ok_flat={ok_flat}"
+                  )
+                  if not ok_nested or not ok_flat:
+                      print(f"  nested_image_grid_thw={nested_grid_rows}")
+                      print(f"  flat_image_grid_thw={flat_grid_rows}")
+
+              print(f"mismatches_nested={mismatches_nested}/{total}")
+              print(f"mismatches_flat={mismatches_flat}/{total}")
+          PY
+      env:
+        - name: HF_HOME
+          value: /data/huggingface_cache
+        - name: MLXP_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mlxp-credentials
+              key: api-key
+        - name: MLXP_ENDPOINT_URL
+          value: https://kpb4r.mlxp.ncloud.com/
+        - name: MLX_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mlxp-credentials
+              key: api-key
+        - name: MLX_ENDPOINT_URL
+          value: https://kpb4r.mlxp.ncloud.com/
+      resources:
+        limits:
+          cpu: "8"
+          memory: "64Gi"
+        requests:
+          cpu: "8"
+          memory: "64Gi"
+      volumeMounts:
+        - mountPath: "/data"
+          name: storage-volume
+  volumes:
+    - name: storage-volume
+      persistentVolumeClaim:
+        claimName: training-pvc

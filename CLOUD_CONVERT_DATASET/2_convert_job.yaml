@@ -1,0 +1,33 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: convert-and-upload-job
+  namespace: gpu-workspace
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      nodeSelector:
+        example.com/gpu-pool: YOUR_GPU_NODE_POOL
+      restartPolicy: Never
+      containers:
+      - name: convert-container
+        image: pytorch/pytorch:2.1.2-cuda11.8-cudnn8-runtime
+        command: ["/bin/bash", "/data/CLOUD_CONVERT_DATASET/scripts/run_cloud_convert.sh"]
+        resources:
+          requests:
+            cpu: "64"
+            memory: "512Gi"
+          limits:
+            cpu: "64"
+            memory: "512Gi"
+        volumeMounts:
+        - name: storage-volume
+          mountPath: /data
+      volumes:
+      - name: storage-volume
+        persistentVolumeClaim:
+          claimName: training-pvc

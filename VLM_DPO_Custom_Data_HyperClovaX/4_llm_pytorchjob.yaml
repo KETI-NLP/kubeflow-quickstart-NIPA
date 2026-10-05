@@ -1,0 +1,100 @@
+apiVersion: "kubeflow.org/v1"
+kind: PyTorchJob
+metadata:
+  name: vlm-dpo-hcx-think-32b
+  namespace: gpu-workspace
+spec:
+  elasticPolicy:
+    rdzvId: vlm-dpo-hcx
+    rdzvBackend: c10d
+    minReplicas: 4
+    maxReplicas: 4
+    nProcPerNode: 8
+  pytorchReplicaSpecs:
+    Worker:
+      replicas: 4
+      restartPolicy: Never
+      template:
+        spec:
+          hostNetwork: true
+          dnsPolicy: ClusterFirstWithHostNet
+          nodeSelector:
+            example.com/gpu-pool: YOUR_GPU_NODE_POOL
+          imagePullSecrets:
+            - name: registry-credentials
+          containers:
+            - name: pytorch
+              image: registry.example.com/vlm-dpo-hcx-unified:ib
+              imagePullPolicy: Always
+              securityContext:
+                capabilities:
+                  add:
+                    - IPC_LOCK
+              command: ["bash", "-c"]
+              args:
+                - >
+                  ulimit -l unlimited &&
+                  torchrun --nnodes ${PET_NNODES}
+                  --nproc_per_node ${PET_NPROC_PER_NODE}
+                  --rdzv_id ${PET_RDZV_ID}
+                  --rdzv_backend ${PET_RDZV_BACKEND}
+                  --rdzv_endpoint ${PET_RDZV_ENDPOINT}
+                  /app/3_vlm_dpo_distributed.py
+                  --model_name naver-hyperclovax/HyperCLOVAX-SEED-Think-32B
+                  --data_path YOUR_WORKSPACE/data_kr_obj_img_4_hallu_txt_dpo_hf
+                  --output_path /data/result/vlm-dpo-hcx-think-32b
+              env:
+                - name: HF_HOME
+                  value: /data/huggingface_cache
+                - name: NCCL_DEBUG
+                  value: INFO
+                - name: NCCL_IB_DISABLE
+                  value: "0"
+                - name: NCCL_SOCKET_IFNAME
+                  value: "^lo,docker0"
+                - name: NCCL_NET_GDR_LEVEL
+                  value: "2"
+                - name: NCCL_ASYNC_ERROR_HANDLING
+                  value: "1"
+                - name: TORCH_NCCL_ASYNC_ERROR_HANDLING
+                  value: "1"
+                - name: MLXP_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: mlxp-credentials
+                      key: api-key
+                - name: MLXP_ENDPOINT_URL
+                  value: https://kpb4r.mlxp.ncloud.com/
+                - name: MLX_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: mlxp-credentials
+                      key: api-key
+                - name: MLX_ENDPOINT_URL
+                  value: https://kpb4r.mlxp.ncloud.com/
+                - name: HF_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: mlxp-credentials
+                      key: api-key
+              resources:
+                limits:
+                  cpu: "64"
+                  memory: "1024Gi"
+                  nvidia.com/gpu: 8
+                requests:
+                  cpu: "64"
+                  memory: "1024Gi"
+                  nvidia.com/gpu: 8
+              volumeMounts:
+                - mountPath: /dev/shm
+                  name: dshm
+                - mountPath: "/data"
+                  name: storage-volume
+          volumes:
+            - name: dshm
+              emptyDir:
+                medium: Memory
+            - name: storage-volume
+              persistentVolumeClaim:
+                claimName: training-pvc

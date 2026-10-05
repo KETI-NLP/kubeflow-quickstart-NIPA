@@ -1,0 +1,22 @@
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+**/local.env
+**/env.local.sh
+*.pem
+*.key
+*.secret.yaml
+**/.claude/
+**/.agents/
+
+# Downloaded data, model artifacts and generated outputs
+/downloaded_models/
+/downloaded_datasets/
+**/training_results/
+**/__pycache__/
+*.pyc
+*.log
+*.zip
+*.zip.sha256
+VLM_SERVE_EVAL_Qwen3_5/Qwen3.5-9B-no-think-tokenizer/

@@ -1,0 +1,34 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pack-and-upload-job
+  namespace: gpu-workspace
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      nodeSelector:
+        example.com/gpu-pool: YOUR_GPU_NODE_POOL
+      restartPolicy: Never
+      containers:
+      - name: pack-container
+        # We can use pytorch base image or generic ubuntu with python
+        image: pytorch/pytorch:2.1.2-cuda11.8-cudnn8-runtime
+        command: ["/bin/bash", "/data/CLOUD_PACK_DATASET/scripts/run_cloud_pack.sh"]
+        resources:
+          requests:
+            cpu: "16"
+            memory: "512Gi"
+          limits:
+            cpu: "16"
+            memory: "512Gi"
+        volumeMounts:
+        - name: storage-volume
+          mountPath: /data
+      volumes:
+      - name: storage-volume
+        persistentVolumeClaim:
+          claimName: training-pvc

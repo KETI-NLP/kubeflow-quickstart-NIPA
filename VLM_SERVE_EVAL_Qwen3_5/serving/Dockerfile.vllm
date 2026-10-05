@@ -1,0 +1,25 @@
+# vLLM-based OpenAI-compatible serving image for Qwen3.5 VLM checkpoints.
+#
+# Unlike the transformers-based server (1_openai_compatible_api.py / Dockerfile),
+# this uses vLLM's built-in OpenAI server: continuous batching, paged KV cache,
+# tensor parallelism. The qwen35 weight-mapper plugin is installed so vLLM can
+# load checkpoints whose vision tower sits under model.language_model.visual.*
+#
+# IMPORTANT: VLLM_TAG must be a vLLM release that supports the Qwen3.5
+# architecture (model_type "qwen3_5", hybrid linear+full attention) AND ships a
+# transformers new enough to parse the checkpoint config. The repo targets the
+# vllm 0.19.x line (see run_lighteval_patched.py). Override at build time:
+#   docker buildx build --build-arg VLLM_TAG=v0.19.x ...
+ARG VLLM_TAG=latest
+FROM vllm/vllm-openai:${VLLM_TAG}
+
+ENV HF_HOME=/data/huggingface_cache
+ENV PYTHONUNBUFFERED=1
+
+# Install the weight-mapper plugin. vLLM auto-discovers it via the
+# `vllm.general_plugins` entry point and runs it in every process.
+COPY vllm_qwen35_plugin /opt/vllm_qwen35_plugin
+RUN pip install --no-cache-dir /opt/vllm_qwen35_plugin
+
+# Base image already has `vllm serve` as the entrypoint; the k8s manifest
+# (2b_serve_vllm.yaml) overrides command/args with the model path and flags.

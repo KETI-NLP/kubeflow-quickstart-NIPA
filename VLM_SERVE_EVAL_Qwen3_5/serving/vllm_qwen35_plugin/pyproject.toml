@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vllm-qwen35-plugin"
+version = "0.1.0"
+description = "vLLM weight-mapper patch for Qwen3.5 VLM SFT/DPO checkpoints"
+requires-python = ">=3.9"
+
+# vLLM discovers and runs this on init in every process (API server,
+# EngineCore, TP workers) — see https://docs.vllm.ai/en/latest/design/plugin_system.html
+[project.entry-points."vllm.general_plugins"]
+qwen35_weight_mapper = "vllm_qwen35_plugin:register"
+
+[tool.setuptools]
+py-modules = ["vllm_qwen35_plugin"]

@@ -1,0 +1,70 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: vlm-dpo-normalize-filter-smoke
+  namespace: gpu-workspace
+  annotations:
+    sidecar.istio.io/inject: "false"
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    example.com/gpu-pool: YOUR_GPU_NODE_POOL
+  imagePullSecrets:
+    - name: registry-credentials
+  containers:
+    - name: normalize
+      image: registry.example.com/vlm-dpo-qwen3_5:ib
+      imagePullPolicy: Always
+      resources:
+        requests:
+          cpu: "16"
+          memory: "256Gi"
+        limits:
+          cpu: "16"
+          memory: "256Gi"
+      command: ["bash", "-lc"]
+      args:
+        - |
+          set -euo pipefail
+          export PYTHONUNBUFFERED=1
+          export OMP_NUM_THREADS=1
+          export MKL_NUM_THREADS=1
+          export OPENBLAS_NUM_THREADS=1
+          python3 /scripts/7_normalize_filter_to_pvc.py \
+            --data_paths "/data/vlm_dpo_qwen3_5_dataset/data_kr_heri_vqa_dpo_hf" \
+            --output_root /data/vlm_dpo_qwen3_5_dataset_normalized_smoke \
+            --dataset_num_proc 16 \
+            --processor_validation_num_proc 2 \
+            --max_samples 5000 \
+            --overwrite
+      env:
+        - name: MLXP_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mlxp-credentials
+              key: api-key
+        - name: MLXP_ENDPOINT_URL
+          value: https://kpb4r.mlxp.ncloud.com/
+        - name: MLX_APIKEY
+          valueFrom:
+            secretKeyRef:
+              name: mlxp-credentials
+              key: api-key
+        - name: MLX_ENDPOINT_URL
+          value: https://kpb4r.mlxp.ncloud.com/
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: none
+      volumeMounts:
+        - name: storage-volume
+          mountPath: /data
+        - name: preprocess-script
+          mountPath: /scripts
+          readOnly: true
+  volumes:
+    - name: storage-volume
+      persistentVolumeClaim:
+        claimName: training-pvc
+    - name: preprocess-script
+      configMap:
+        name: vlm-dpo-normalize-filter-script
+        defaultMode: 0755

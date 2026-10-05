@@ -1,0 +1,15 @@
+model_parameters:
+  model_name: "openai/qwen3-vl-32b"
+  provider: "openai"
+  base_url: "http://127.0.0.1:4000/v1"
+  api_key: "REPLACE_WITH_API_KEY"
+  concurrent_requests: 4
+  verbose: true
+  api_max_retry: 8       
+  api_retry_sleep: 5.0   
+  api_retry_multiplier: 2.0
+  timeout: 600.0
+  max_model_length: 32768  # qwen3-32b의 최대 컨텍스트 길이
+  generation_parameters:
+    temperature: 0.0
+    top_p: 1.0 

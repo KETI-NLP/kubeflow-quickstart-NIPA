@@ -1,0 +1,19 @@
+# Datasets & Output
+alpaca_dataset/
+trained_model_output/
+
+# Logs & Debugging
+*.log
+*.txt
+pod_logs.txt
+pod_logs2.txt
+
+# Python Caches
+__pycache__/
+*.pyc
+
+# Temporary / Debug Scripts
+trainer.py
+test_ddp_save.py
+2_download_job.yaml
+rlhf_dataset/

@@ -1,0 +1,99 @@
+apiVersion: "kubeflow.org/v1"
+kind: PyTorchJob
+metadata:
+  name: vlm-sft-hcx-seed-omni-8b-benchmark
+  namespace: gpu-workspace
+spec:
+  elasticPolicy:
+    rdzvId: vlm-sft
+    rdzvBackend: c10d
+    minReplicas: 15
+    maxReplicas: 15
+    nProcPerNode: 8
+  pytorchReplicaSpecs:
+    Worker:
+      replicas: 15
+      restartPolicy: Never
+      template:
+        spec:
+          hostNetwork: true
+          dnsPolicy: ClusterFirstWithHostNet
+          nodeSelector:
+            example.com/gpu-pool: YOUR_GPU_NODE_POOL
+          imagePullSecrets:
+            - name: registry-credentials
+          containers:
+            - name: pytorch
+              image: registry.example.com/vlm-sft-hcx-unified:ib
+              imagePullPolicy: Always
+              securityContext:
+                capabilities:
+                  add:
+                    - IPC_LOCK
+              command: ["bash", "-c"]
+              args:
+                - >
+                  ulimit -l unlimited &&
+                  torchrun --nnodes ${PET_NNODES}
+                  --nproc_per_node ${PET_NPROC_PER_NODE}
+                  --rdzv_id ${PET_RDZV_ID}
+                  --rdzv_backend ${PET_RDZV_BACKEND}
+                  --rdzv_endpoint ${PET_RDZV_ENDPOINT}
+                  /app/3_vlm_sft_distributed.py
+                  --model_name naver-hyperclovax/HyperCLOVAX-SEED-Omni-8B
+                  --data_path YOUR_WORKSPACE/data_030_kr_char_out_hcx_omni_sft_hf,YOUR_WORKSPACE/data_kr_heri_text_hcx_omni_sft_hf,YOUR_WORKSPACE/data_kr_obj_img_3_gen_hcx_omni_sft_hf,YOUR_WORKSPACE/data_kr_obj_img_4_hallu_txt_hcx_omni_sft_hf,YOUR_WORKSPACE/data_kr_obj_img_5_hallu_wr_txt_hcx_omni_sft_hf,YOUR_WORKSPACE/data_030_kr_char_out_hcx_omni_sft_hf,YOUR_WORKSPACE/data_kr_heri_text_hcx_omni_sft_hf,YOUR_WORKSPACE/data_kr_obj_img_3_gen_hcx_omni_sft_hf,YOUR_WORKSPACE/data_kr_obj_img_4_hallu_txt_hcx_omni_sft_hf,YOUR_WORKSPACE/data_kr_obj_img_5_hallu_wr_txt_hcx_omni_sft_hf,YOUR_WORKSPACE/data_030_kr_char_out_hcx_omni_sft_hf,YOUR_WORKSPACE/data_kr_heri_text_hcx_omni_sft_hf,YOUR_WORKSPACE/data_kr_obj_img_3_gen_hcx_omni_sft_hf,YOUR_WORKSPACE/data_kr_obj_img_4_hallu_txt_hcx_omni_sft_hf,YOUR_WORKSPACE/data_kr_obj_img_5_hallu_wr_txt_hcx_omni_sft_hf,YOUR_WORKSPACE/data_030_kr_char_out_hcx_omni_sft_hf,YOUR_WORKSPACE/data_kr_heri_text_hcx_omni_sft_hf,YOUR_WORKSPACE/data_kr_obj_img_3_gen_hcx_omni_sft_hf,YOUR_WORKSPACE/data_kr_obj_img_4_hallu_txt_hcx_omni_sft_hf,YOUR_WORKSPACE/data_kr_obj_img_5_hallu_wr_txt_hcx_omni_sft_hf,YOUR_WORKSPACE/data_030_kr_char_out_hcx_omni_sft_hf,YOUR_WORKSPACE/data_kr_heri_text_hcx_omni_sft_hf,YOUR_WORKSPACE/data_kr_obj_img_3_gen_hcx_omni_sft_hf,YOUR_WORKSPACE/data_kr_obj_img_4_hallu_txt_hcx_omni_sft_hf,YOUR_WORKSPACE/data_kr_obj_img_5_hallu_wr_txt_hcx_omni_sft_hf
+              env:
+                - name: HF_HOME
+                  value: /data/huggingface_cache
+                - name: NCCL_DEBUG
+                  value: INFO
+                - name: NCCL_IB_DISABLE
+                  value: "0"
+                - name: NCCL_SOCKET_IFNAME
+                  value: "^lo,docker0"
+                - name: NCCL_NET_GDR_LEVEL
+                  value: "2"
+                - name: NCCL_ASYNC_ERROR_HANDLING
+                  value: "1"
+                - name: TORCH_NCCL_ASYNC_ERROR_HANDLING
+                  value: "1"
+                - name: MLXP_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: mlxp-credentials
+                      key: api-key
+                - name: MLXP_ENDPOINT_URL
+                  value: https://kpb4r.mlxp.ncloud.com/
+                - name: MLX_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: mlxp-credentials
+                      key: api-key
+                - name: MLX_ENDPOINT_URL
+                  value: https://kpb4r.mlxp.ncloud.com/
+                - name: HF_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: mlxp-credentials
+                      key: api-key
+              resources:
+                limits:
+                  cpu: "64"
+                  memory: "1024Gi"
+                  nvidia.com/gpu: 8
+                requests:
+                  cpu: "64"
+                  memory: "1024Gi"
+                  nvidia.com/gpu: 8
+              volumeMounts:
+                - mountPath: /dev/shm
+                  name: dshm
+                - mountPath: "/data"
+                  name: storage-volume
+          volumes:
+            - name: dshm
+              emptyDir:
+                medium: Memory
+            - name: storage-volume
+              persistentVolumeClaim:
+                claimName: training-pvc

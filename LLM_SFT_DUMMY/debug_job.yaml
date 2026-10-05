@@ -1,0 +1,33 @@
+apiVersion: "kubeflow.org/v1"
+kind: PyTorchJob
+metadata:
+  name: llm-debug
+  namespace: gpu-workspace
+spec:
+  pytorchReplicaSpecs:
+    Master:
+      replicas: 1
+      restartPolicy: Never
+      template:
+        spec:
+          containers:
+            - name: pytorch
+              image: registry.example.com/custom-llm-sft:latest
+              command:
+                - "python3"
+                - "/home/user/mlxp/LLM_SFT/debug_nan.py"
+              resources:
+                limits:
+                  nvidia.com/gpu: 1
+              volumeMounts:
+                - mountPath: /data
+                  name: data-volume
+                - mountPath: /home/user/mlxp
+                  name: code-volume
+          volumes:
+            - name: data-volume
+              persistentVolumeClaim:
+                claimName: keti-storage-pvc
+            - name: code-volume
+              hostPath:
+                path: /home/user/mlxp
